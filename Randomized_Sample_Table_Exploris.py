@@ -40,6 +40,7 @@ def create_lc_hrms_sample_table(input_csv_path, output_csv_path):
         "Blank": [],
         "QC": [],
         "Equilibration": [],
+        "SSM": [],
         "Unknown": []
       }
       for row_data in reader:
@@ -57,12 +58,13 @@ def create_lc_hrms_sample_table(input_csv_path, output_csv_path):
     return
 
   # Validate key templates
-  if not samples["Blank"] or not samples["QC"] or not samples["Equilibration"]:
+  if not samples["Blank"] or not samples["QC"] or not samples["Equilibration"]or not samples["SSM"]:
     print(
       "Error: Input CSV must contain at least one 'Blank', one 'QC', and one 'Equilibration' sample.")
     return
 
   instrument_blank_template = samples["Blank"][0]
+  ssm_template = samples["SSM"][0]
   qc_templates = samples["QC"]
   equilibration_template = samples["Equilibration"][0]
   unknown_samples = samples["Unknown"]
@@ -136,6 +138,9 @@ def create_lc_hrms_sample_table(input_csv_path, output_csv_path):
   for _ in range(metadata["Equilibration"]):
     add_injection(equilibration_template)
 
+  add_injection(instrument_blank_template)
+  add_injection(ssm_template)
+
   add_qc_block()
 
   unknown_count_in_block = 0
@@ -145,6 +150,9 @@ def create_lc_hrms_sample_table(input_csv_path, output_csv_path):
     if unknown_count_in_block % metadata["Max QC distance"] == 0:
       add_qc_block()
       unknown_count_in_block = 0
+
+  add_injection(instrument_blank_template)
+  add_injection(ssm_template)
 
   if unknown_count_in_block > 0:
     add_qc_block()
