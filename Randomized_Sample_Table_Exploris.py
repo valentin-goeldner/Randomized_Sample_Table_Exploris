@@ -58,13 +58,13 @@ def create_lc_hrms_sample_table(input_csv_path, output_csv_path):
     return
 
   # Validate key templates
-  if not samples["Blank"] or not samples["QC"] or not samples["Equilibration"]or not samples["SSM"]:
+  if not samples["Blank"] or not samples["QC"] or not samples["Equilibration"] or not samples["SSM"]:
     print(
-      "Error: Input CSV must contain at least one 'Blank', one 'QC', and one 'Equilibration' sample.")
+      "Error: Input CSV must contain at least one 'Blank', one 'QC', one 'SSM' and one 'Equilibration' sample.")
     return
 
   instrument_blank_template = samples["Blank"][0]
-  ssm_template = samples["SSM"][0]
+  ssm_templates = samples["SSM"]
   qc_templates = samples["QC"]
   equilibration_template = samples["Equilibration"][0]
   unknown_samples = samples["Unknown"]
@@ -139,7 +139,8 @@ def create_lc_hrms_sample_table(input_csv_path, output_csv_path):
     add_injection(equilibration_template)
 
   add_injection(instrument_blank_template)
-  add_injection(ssm_template)
+  for ssm_temp in ssm_templates:
+    add_injection(ssm_temp)
 
   add_qc_block()
 
@@ -151,11 +152,15 @@ def create_lc_hrms_sample_table(input_csv_path, output_csv_path):
       add_qc_block()
       unknown_count_in_block = 0
 
-  add_injection(instrument_blank_template)
-  add_injection(ssm_template)
-
   if unknown_count_in_block > 0:
+    add_injection(instrument_blank_template)
+    for ssm_temp in ssm_templates:
+      add_injection(ssm_temp)
     add_qc_block()
+  else:
+    for ssm_temp in ssm_templates:
+      add_injection(ssm_temp)
+    add_injection(instrument_blank_template)
 
   # Write output CSV
   try:
