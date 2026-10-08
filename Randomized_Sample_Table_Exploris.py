@@ -59,17 +59,31 @@ def create_lc_hrms_sample_table(input_csv_path, output_csv_path,
     print(f"Error reading input file: {e}")
     return
 
-  # Validate key templates
-  if not samples["Blank"] or not samples["QC"] or not samples[
-    "Equilibration"] or not samples["SSM"]:
-    print(
-        "Error: Input CSV must contain at least one 'Blank', one 'QC', one 'SSM' and one 'Equilibration' sample.")
+  # Detect and verify sample types
+  print("\n--- Detected Sample Types ---")
+  for stype in ["Blank", "QC", "Equilibration", "SSM"]:
+    status = f"PRESENT ({len(samples[stype])} samples)" if samples[
+      stype] else "ABSENT"
+    print(f"  {stype:15}: {status}")
+
+  verify = input(
+    "\nDo you verify and want to proceed with these detected types? (y/n) [default: y]: ").strip().lower()
+  if verify == 'n':
+    print("Execution halted by user.")
+    return
+
+  # Extract available templates
+  if not samples["Blank"]:
+    print("Error: Input CSV must contain at least one 'Blank' sample.")
     return
 
   instrument_blank_template = samples["Blank"][0]
-  ssm_templates = samples["SSM"]
-  qc_templates = samples["QC"]
-  equilibration_template = samples["Equilibration"][0]
+  ssm_templates = samples["SSM"]  # Can be empty
+  qc_templates = samples["QC"]  # Can be empty
+
+  # Equilibration template is optional
+  equilibration_template = samples["Equilibration"][0] if samples[
+    "Equilibration"] else None
   unknown_samples = samples["Unknown"]
 
   # Validate and parse metadata
@@ -82,12 +96,15 @@ def create_lc_hrms_sample_table(input_csv_path, output_csv_path,
 
   try:
     metadata["Technical replicates"] = int(
-        metadata.get("Technical replicates", 1))
+      metadata.get("Technical replicates", 1))
     metadata["Max QC distance"] = int(metadata.get("Max QC distance", 10))
-    metadata["Equilibration"] = int(metadata.get("Equilibration", 5))
+    metadata["Equilibration"] = int(
+      metadata.get("Equilibration", 5)) if equilibration_template else 0
+    # Parse Leading Blanks (defaults to 1 if not present in the input file)
+    metadata["Leading blanks"] = int(metadata.get("Leading blanks", 1))
   except ValueError:
     print(
-        "Error: Technical replicates, Max QC distance, and Equilibration must be integers.")
+        "Error: Technical replicates, Max QC distance, Equilibration, and Leading blanks must be integers.")
     return
 
   # Generate technical replicates
@@ -96,7 +113,6 @@ def create_lc_hrms_sample_table(input_csv_path, output_csv_path,
     for _ in range(metadata["Technical replicates"])
   ]
 
-  # Step 2: Conditionally shuffle based on user input
   if randomize:
     print("Randomizing sample run order...")
     random.shuffle(replicated_unknowns)
@@ -119,6 +135,13 @@ def create_lc_hrms_sample_table(input_csv_path, output_csv_path,
     new_row = {header: '' for header in output_headers}
     new_row.update(template_row)
 
+    # Map Sample Type output to only allow Blank, QC, or Unknown
+    orig_type = template_row.get("Sample Type", "Unknown").strip()
+    if orig_type in ["Equilibration", "SSM", "Unknown", ""]:
+      new_row["Sample Type"] = "Unknown"
+    else:
+      new_row["Sample Type"] = orig_type  # Will remain "Blank" or "QC"
+
     new_row["Path"] = metadata["Path"]
     new_row["Instrument Method"] = metadata["Instrument Method"]
     new_row["Inj Vol"] = metadata["Injection volume"]
@@ -138,21 +161,36 @@ def create_lc_hrms_sample_table(input_csv_path, output_csv_path,
     injection_counter += 1
 
   def add_qc_block():
-    for qc_temp in qc_templates:
-      add_injection(qc_temp)
+    # Only add QCs if they actually exist in the templates
+    if qc_templates:
+      for qc_temp in qc_templates:
+        add_injection(qc_temp)
     add_injection(instrument_blank_template)
 
-  # Assemble final sequence
-  add_injection(instrument_blank_template)
-  for _ in range(metadata["Equilibration"]):
-    add_injection(equilibration_template)
+  # --- Assemble final sequence ---
 
-  add_injection(instrument_blank_template)
-  for ssm_temp in ssm_templates:
-    add_injection(ssm_temp)
+  # 1. Leading Blanks
+  for _ in range(metadata["Leading blanks"]):
+    add_injection(instrument_blank_template)
 
-  add_qc_block()
+  # 2. Equilibration & Reference Blank
+  # We only add the post-equilibration Reference Blank if equilibration was actually run
+  if equilibration_template and metadata["Equilibration"] > 0:
+    for _ in range(metadata["Equilibration"]):
+      add_injection(equilibration_template)
+    # Reference Blank to clean system after equilibration
+    add_injection(instrument_blank_template)
 
+  # 3. Standard Reference Material / SSM
+  if ssm_templates:
+    for ssm_temp in ssm_templates:
+      add_injection(ssm_temp)
+
+  # 4. QC Block (if QCs exist)
+  if qc_templates:
+    add_qc_block()
+
+  # 5. Unknowns Sequence
   unknown_count_in_block = 0
   for sample_row in replicated_unknowns:
     add_injection(sample_row)
@@ -161,14 +199,18 @@ def create_lc_hrms_sample_table(input_csv_path, output_csv_path,
       add_qc_block()
       unknown_count_in_block = 0
 
+  # 6. Post-sequence / Bracket Close
   if unknown_count_in_block > 0:
     add_injection(instrument_blank_template)
-    for ssm_temp in ssm_templates:
-      add_injection(ssm_temp)
-    add_qc_block()
+    if ssm_templates:
+      for ssm_temp in ssm_templates:
+        add_injection(ssm_temp)
+    if qc_templates:
+      add_qc_block()
   else:
-    for ssm_temp in ssm_templates:
-      add_injection(ssm_temp)
+    if ssm_templates:
+      for ssm_temp in ssm_templates:
+        add_injection(ssm_temp)
     add_injection(instrument_blank_template)
 
   # Write output CSV
@@ -195,7 +237,6 @@ if __name__ == "__main__":
   output_file = input(
       f"Enter the path for the output CSV file (default: {default_output_file}): ").strip() or default_output_file
 
-  # Prompt user for randomization choice
   randomize_choice = input(
     "Do you want to randomize the sample order? (y/n) [default: y]: ").strip().lower()
   do_randomize = randomize_choice != 'n'
