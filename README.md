@@ -1,4 +1,4 @@
-This skript creates a sample list for Thermo Scientific LC-MS systems, optimized for Xcalibur Version 4.7.102.25.
+This script creates a sample list for Thermo Scientific LC-MS systems, optimized for Xcalibur Version 4.7.102.25.
 When preparing your input sequence spreadsheet, please adhere to the following to ensure the script processes your sequence successfully:
 
 1. Metadata Block (Rows 1 to 10)
