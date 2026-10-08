@@ -6,7 +6,7 @@ import os
 def create_lc_hrms_sample_table(input_csv_path, output_csv_path,
     randomize=True):
   """
-      Generates an LC-HRMS sample table with interleaved blanks and QCs.
+      Generates an LC-HRMS sample table with interleaved blanks and QCs/Blanks.
 
       Args:
           input_csv_path (str): Path to the input CSV file.
@@ -97,14 +97,16 @@ def create_lc_hrms_sample_table(input_csv_path, output_csv_path,
   try:
     metadata["Technical replicates"] = int(
       metadata.get("Technical replicates", 1))
-    metadata["Max QC distance"] = int(metadata.get("Max QC distance", 10))
     metadata["Equilibration"] = int(
       metadata.get("Equilibration", 5)) if equilibration_template else 0
-    # Parse Leading Blanks (defaults to 1 if not present in the input file)
     metadata["Leading blanks"] = int(metadata.get("Leading blanks", 1))
+
+    # Support both "Max QC/blank distance" and legacy "Max QC distance"
+    qc_dist_key = "Max QC/blank distance" if "Max QC/blank distance" in metadata else "Max QC distance"
+    metadata["Max QC/blank distance"] = int(metadata.get(qc_dist_key, 10))
   except ValueError:
     print(
-        "Error: Technical replicates, Max QC distance, Equilibration, and Leading blanks must be integers.")
+        "Error: Technical replicates, Max QC/blank distance, Equilibration, and Leading blanks must be integers.")
     return
 
   # Generate technical replicates
@@ -161,10 +163,11 @@ def create_lc_hrms_sample_table(input_csv_path, output_csv_path,
     injection_counter += 1
 
   def add_qc_block():
-    # Only add QCs if they actually exist in the templates
+    # If QC templates exist, inject QC injections first, followed by a blank
     if qc_templates:
       for qc_temp in qc_templates:
         add_injection(qc_temp)
+    # If QC templates do not exist, this block defaults to a single periodic blank
     add_injection(instrument_blank_template)
 
   # --- Assemble final sequence ---
@@ -174,11 +177,9 @@ def create_lc_hrms_sample_table(input_csv_path, output_csv_path,
     add_injection(instrument_blank_template)
 
   # 2. Equilibration & Reference Blank
-  # We only add the post-equilibration Reference Blank if equilibration was actually run
   if equilibration_template and metadata["Equilibration"] > 0:
     for _ in range(metadata["Equilibration"]):
       add_injection(equilibration_template)
-    # Reference Blank to clean system after equilibration
     add_injection(instrument_blank_template)
 
   # 3. Standard Reference Material / SSM
@@ -186,16 +187,16 @@ def create_lc_hrms_sample_table(input_csv_path, output_csv_path,
     for ssm_temp in ssm_templates:
       add_injection(ssm_temp)
 
-  # 4. QC Block (if QCs exist)
+  # 4. Initial QC Block (if QCs exist)
   if qc_templates:
     add_qc_block()
 
-  # 5. Unknowns Sequence
+  # 5. Unknowns Sequence (interleaved with QCs or Blanks dynamically)
   unknown_count_in_block = 0
   for sample_row in replicated_unknowns:
     add_injection(sample_row)
     unknown_count_in_block += 1
-    if unknown_count_in_block % metadata["Max QC distance"] == 0:
+    if unknown_count_in_block % metadata["Max QC/blank distance"] == 0:
       add_qc_block()
       unknown_count_in_block = 0
 
@@ -207,6 +208,9 @@ def create_lc_hrms_sample_table(input_csv_path, output_csv_path,
         add_injection(ssm_temp)
     if qc_templates:
       add_qc_block()
+    else:
+      # If no QCs are present, end the sequence on a blank
+      add_injection(instrument_blank_template)
   else:
     if ssm_templates:
       for ssm_temp in ssm_templates:
