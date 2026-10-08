@@ -3,13 +3,15 @@ import random
 import os
 
 
-def create_lc_hrms_sample_table(input_csv_path, output_csv_path):
+def create_lc_hrms_sample_table(input_csv_path, output_csv_path,
+    randomize=True):
   """
-      Generates a randomized LC-HRMS sample table with interleaved blanks and QCs.
+      Generates an LC-HRMS sample table with interleaved blanks and QCs.
 
       Args:
           input_csv_path (str): Path to the input CSV file.
           output_csv_path (str): Path where the generated CSV table will be saved.
+          randomize (bool): If True, shuffles the unknown samples. If False, keeps original order.
   """
   try:
     with open(input_csv_path, 'r', newline='', encoding='utf-8') as infile:
@@ -58,9 +60,10 @@ def create_lc_hrms_sample_table(input_csv_path, output_csv_path):
     return
 
   # Validate key templates
-  if not samples["Blank"] or not samples["QC"] or not samples["Equilibration"] or not samples["SSM"]:
+  if not samples["Blank"] or not samples["QC"] or not samples[
+    "Equilibration"] or not samples["SSM"]:
     print(
-      "Error: Input CSV must contain at least one 'Blank', one 'QC', one 'SSM' and one 'Equilibration' sample.")
+        "Error: Input CSV must contain at least one 'Blank', one 'QC', one 'SSM' and one 'Equilibration' sample.")
     return
 
   instrument_blank_template = samples["Blank"][0]
@@ -74,25 +77,31 @@ def create_lc_hrms_sample_table(input_csv_path, output_csv_path):
                    "Date of analysis", "Initials"}
   if not required_meta.issubset(set(metadata.keys())):
     print(
-      f"Error: Missing required metadata keys: {', '.join(required_meta.difference(metadata.keys()))}.")
+        f"Error: Missing required metadata keys: {', '.join(required_meta.difference(metadata.keys()))}.")
     return
 
   try:
     metadata["Technical replicates"] = int(
-      metadata.get("Technical replicates", 1))
+        metadata.get("Technical replicates", 1))
     metadata["Max QC distance"] = int(metadata.get("Max QC distance", 10))
     metadata["Equilibration"] = int(metadata.get("Equilibration", 5))
   except ValueError:
     print(
-      "Error: Technical replicates, Max QC distance, and Equilibration must be integers.")
+        "Error: Technical replicates, Max QC distance, and Equilibration must be integers.")
     return
 
-  # Generate technical replicates and randomize unknowns
+  # Generate technical replicates
   replicated_unknowns = [
     sample.copy() for sample in unknown_samples
     for _ in range(metadata["Technical replicates"])
   ]
-  random.shuffle(replicated_unknowns)
+
+  # Step 2: Conditionally shuffle based on user input
+  if randomize:
+    print("Randomizing sample run order...")
+    random.shuffle(replicated_unknowns)
+  else:
+    print("Maintaining original sample run order.")
 
   # Prepare output structure and helper functions
   final_sequence = []
@@ -179,13 +188,19 @@ def create_lc_hrms_sample_table(input_csv_path, output_csv_path):
 
 
 if __name__ == "__main__":
-  input_file = input("Enter the path to your input CSV file: ").strip().strip('\"')
+  input_file = input("Enter the path to your input CSV file: ").strip().strip(
+    '\"')
   base, ext = os.path.splitext(input_file)
   default_output_file = f"{base}_sequence{ext}"
   output_file = input(
-    f"Enter the path for the output CSV file (default: {default_output_file}): ").strip() or default_output_file
+      f"Enter the path for the output CSV file (default: {default_output_file}): ").strip() or default_output_file
+
+  # Prompt user for randomization choice
+  randomize_choice = input(
+    "Do you want to randomize the sample order? (y/n) [default: y]: ").strip().lower()
+  do_randomize = randomize_choice != 'n'
 
   if os.path.exists(input_file):
-    create_lc_hrms_sample_table(input_file, output_file)
+    create_lc_hrms_sample_table(input_file, output_file, randomize=do_randomize)
   else:
     print(f"Error: The provided input file path does not exist: '{input_file}'")
