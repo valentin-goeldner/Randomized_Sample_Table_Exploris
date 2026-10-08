@@ -1,6 +1,7 @@
 import csv
 import random
 import os
+import re
 
 
 def create_lc_hrms_sample_table(input_csv_path, output_csv_path,
@@ -59,7 +60,58 @@ def create_lc_hrms_sample_table(input_csv_path, output_csv_path,
     print(f"Error reading input file: {e}")
     return
 
-  # Detect and verify sample types
+  # --- Position Pattern & Duplicate Sanity Checks ---
+  position_pattern = re.compile(r'^[RGBY]:[A-F][1-9]$')
+  invalid_format_samples = []
+  position_to_samples = {}
+
+  # Gather all samples to validate positions
+  all_loaded_samples = []
+  for s_list in samples.values():
+    all_loaded_samples.extend(s_list)
+
+  for sample in all_loaded_samples:
+    pos = sample.get("Position", "").strip()
+    sample_id = sample.get("Sample ID", "Unknown ID")
+
+    # 1. Check Pattern Format
+    if not position_pattern.match(pos):
+      invalid_format_samples.append((sample_id, pos))
+
+    # 2. Track Positions for Duplicate Check
+    if pos:
+      if pos not in position_to_samples:
+        position_to_samples[pos] = []
+      position_to_samples[pos].append(sample_id)
+
+  # Prompt on Format Errors
+  if invalid_format_samples:
+    print(
+      "\n[WARNING] The following samples have positions that do not match the expected pattern ([R,G,B,Y]:[A-F][1-9]):")
+    for sample_id, pos in invalid_format_samples:
+      print(
+        f"  - Sample ID: '{sample_id}' has invalid position format: '{pos}'")
+    proceed = input(
+      "Do you want to proceed anyway? (y/n) [default: n]: ").strip().lower()
+    if proceed != 'y':
+      print("Execution halted by user due to position format errors.")
+      return
+
+  # Prompt on Duplicate Positions
+  duplicate_positions = {pos: ids for pos, ids in position_to_samples.items() if
+                         len(set(ids)) > 1}
+  if duplicate_positions:
+    print("\n[WARNING] Multiple unique samples share the same plate position:")
+    for pos, ids in duplicate_positions.items():
+      print(
+        f"  - Position '{pos}' is shared by unique Sample IDs: {list(set(ids))}")
+    proceed = input(
+      "Do you want to proceed anyway? (y/n) [default: n]: ").strip().lower()
+    if proceed != 'y':
+      print("Execution halted by user due to duplicate position assignments.")
+      return
+
+  # --- Detect and Verify Sample Types ---
   print("\n--- Detected Sample Types ---")
   for stype in ["Blank", "QC", "Equilibration", "SSM"]:
     status = f"PRESENT ({len(samples[stype])} samples)" if samples[
